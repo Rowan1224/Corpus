@@ -1,0 +1,123 @@
+---
+title: |
+  | Corpus Linguistics
+author: "Md Zobaer Hossain (S4996755)"
+date: "December 15, 2021"
+output:
+  html_document: default
+  pdf_document: default
+  urlcolor: blue
+---
+
+## A: Tokenizing N-grams
+
+
+```{r results='hide', message=FALSE, warning=FALSE}
+library(readr)
+library(tidytext)
+library(tidyr)
+library(dplyr)
+library(tidylo)
+library(ggplot2)
+library(scales)
+library(stringr)
+library(tokenizers)
+library(ggpubr)
+```
+
+```{r}
+#read from file and tokenize the transcripts
+dataset = read.csv(file="TedX.csv",head=TRUE)
+dataset$sex = as.factor(dataset$sex)
+names(dataset)[names(dataset)=='sex']='gender'
+# dataset = dataset[1:2]
+bigram = dataset %>% unnest_tokens(bigram, transcript, token = "ngrams", n = 2)
+unigram = dataset %>% unnest_tokens(word, transcript)
+```
+
+
+## B: Box Plot
+```{r}
+boxplot(word~ gender , data=dataset,xlab="Gender", ylab="word count")
+
+```
+
+```{r}
+boxplot(sen~ gender , data=dataset,xlab="Gender", ylab="sentence count")
+
+```
+
+## C: Weighted Log Odd Ratio: Bigrams
+```{r}
+
+
+bigram_counts = bigram %>% count(gender, bigram, sort = TRUE)
+bigram_log_odds = bigram_counts %>% bind_log_odds(gender, bigram, n) 
+bigram_log_odds %>%
+  group_by(gender) %>%
+  top_n(10) %>%
+  ungroup %>%
+  mutate(bigram = reorder(bigram, log_odds_weighted)) %>%
+  ggplot(aes(bigram, log_odds_weighted, fill = gender)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~gender, scales = "free") +
+  coord_flip() +
+  labs(y = "log odds weighted", x="bigrams")
+```
+## C: Weighted Log Odd Ratio: Unigrams
+
+```{r}
+unigram_counts = unigram %>% count(gender, word, sort = TRUE)
+unigram_log_odds = unigram_counts %>% bind_log_odds(gender, word, n) 
+unigram_log_odds %>%
+  group_by(gender) %>%
+  top_n(10) %>%
+  ungroup %>%
+  mutate(word = reorder(word, log_odds_weighted)) %>%
+  ggplot(aes(word, log_odds_weighted, fill = gender)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~gender, scales = "free") +
+  coord_flip() +
+  labs(y = "log odds weighted", x="unigrams")
+
+
+```
+```{r}
+
+frequency = unigram %>%
+mutate(word = str_extract(word, "[a-z']+")) %>%
+count(gender, word) %>%
+group_by(gender) %>%
+mutate(proportion = n / sum(n)) %>%
+select(-n) %>%
+spread(gender, proportion) 
+
+# frequency = frequency[,c('word','female','male')]
+# 
+# frequency = frequency %>%
+# gather(gender, proportion, `female`:`male`)
+
+```
+
+
+
+## D: Frequency Analysis
+```{r message=FALSE, warning=FALSE}
+
+# expect a warning about rows with missing values being removed
+ggplot(frequency, aes(x = female, y = male, color = abs(male - female))) +
+geom_abline(color = "gray40", lty = 2) +
+geom_jitter(alpha = 0.00, size = 2.5, width = 0.3, height = 0.3) +
+geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.5) +
+scale_x_log10(labels = percent_format()) +
+scale_y_log10(labels = percent_format()) +
+scale_color_gradient(limits = c(0, 0.001),
+low = "springgreen4", high = "red3") +
+theme(legend.position="none") +
+labs(y = "Male", x = "Female")
+```
+## E: Correlation
+```{r}
+cor.test(frequency$female, frequency$male, method = "pearson")
+```
+

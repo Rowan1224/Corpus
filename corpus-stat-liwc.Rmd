@@ -1,0 +1,296 @@
+---
+title: "LIWC"
+output: html_document
+---
+
+### Import Packages
+```{r}
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(car)
+library(GGally)
+```
+
+
+### Read Data
+```{r}
+dataset = read.csv(file="liwc.csv",head=TRUE)
+dataset$sex = as.factor(dataset$sex)
+dataset =dataset %>% mutate_if(is.integer,as.double)
+names(dataset)[names(dataset)=='sex']='gender'
+summary(dataset)
+```
+### Visualization of Data group by Gender
+```{r}
+png(file="liwc-A.png",
+width=600, height=350)
+ggboxplot(
+  dataset, x = "gender", y = colnames(dataset)[1:10], ylab = "word count",
+  merge = TRUE, palette = "jco"
+  )
+dev.off()
+png(file="liwc-B.png",
+width=600, height=350)
+ggboxplot(
+  dataset, x = "gender", y = colnames(dataset)[11:20], ylab = "word count",
+  merge = TRUE, palette = "jco"
+  )
+dev.off()
+
+png(file="liwc-C.png",
+width=600, height=350)
+ggboxplot(
+  dataset, x = "gender", y = colnames(dataset)[21:30], ylab = "word count",
+  merge = TRUE, palette = "jco"
+  )
+dev.off()
+
+png(file="liwc-D.png",
+width=600, height=350)
+ggboxplot(
+  dataset, x = "gender", y = colnames(dataset)[31:40], ylab = "word count",
+  merge = TRUE, palette = "jco"
+  )
+dev.off()
+
+png(file="liwc-E.png",
+width=600, height=350)
+ggboxplot(
+  dataset, x = "gender", y = colnames(dataset)[41:48], ylab = "word count",
+  merge = TRUE, palette = "jco"
+  )
+dev.off()
+```
+
+
+### Multivariate Normality Test
+```{r}
+library("MVN")
+par(mar=c(2.1,2.1,2.1,2.1),mgp=c(1,0.25,0))
+# par(adj)
+result = mvn(data = dataset, subset = "gender", mvnTest = "hz",
+univariateTest = "AD", univariatePlot = "histogram",
+multivariatePlot = "qq", multivariateOutlierMethod = "adj",
+showOutliers = TRUE, showNewData = TRUE)
+```
+
+### Remove variables that does not look like Normally distributed
+```{r}
+dataset = subset(dataset, select=-c(Netspeak,Informal.language,Biological.processes,Negative.emotion,X1st.Person.Singular.Pronoun))
+```
+
+
+### Find and remove outliers
+```{r}
+dataset %>%
+  group_by(gender) %>% 
+  mahalanobis_distance() %>%
+  filter(is.outlier==TRUE) %>%
+  as.data.frame()
+
+
+dataset.outlierf = dataset %>%
+  group_by(gender) %>% 
+  mahalanobis_distance() %>%
+  ungroup() %>%
+  as.data.frame()
+  
+
+dataset.outlierf$gender = dataset$gender
+dataset.outlierf = dataset.outlierf %>%
+  filter(is.outlier==FALSE) %>%
+  select(-c(is.outlier,mahal.dist))
+
+
+```
+
+### Identify multicollinearity
+```{r}
+dataset[-length(dataset)] %>% cor_test() %>% filter(p>0.05)
+```
+
+
+### Check linearity assumption
+```{r}
+
+results = dataset %>%
+  group_by(gender) %>%
+  doo(~ggpairs(.) + theme_bw(), result = "plots")
+results$plots
+```
+
+### Check the homogneity of variance assumption
+
+```{r}
+dataset %>% 
+  gather(key = "variable", value = "value", -gender) %>%
+  group_by(variable) %>%
+  levene_test(value ~ gender) %>%
+  filter(p<0.05)
+```
+
+### Check the homogeneity of covariances assumption
+```{r}
+box_m(dataset[-length(dataset)],dataset$gender)
+```
+
+
+### Perform MANOVA
+
+```{r}
+dvar = data.matrix(dataset[-length(dataset)])
+model = lm(dvar ~ gender, dataset)
+summary(Manova(model, test.statistic = "Pillai"))
+
+```
+
+```{r}
+library(effectsize)
+manova_model= manova(model)
+
+eta_squared(manova_model)
+```
+
+```{r}
+summary(manova_model)
+```
+
+
+### POST HOC
+
+### Compute univariate one-way ANOVA: welch ANOVA
+
+```{r}
+alpha = 0.05/(length(dataset)-1)
+welch = dataset %>% 
+  gather(key = "variable", value = "value", -gender) %>%
+  group_by(variable) %>%
+  welch_anova_test(value ~ gender)%>%
+  select(-c(.y.,n,method))
+
+
+```
+
+
+### Compute univariate one-way ANOVA: ANOVA
+
+```{r}
+alpha = 0.05/(length(dataset)-1)
+dataset %>% 
+  gather(key = "variable", value = "value", -gender) %>%
+  group_by(variable) %>%
+  anova_test(value ~ gender) %>%
+  as.data.frame() %>%
+  filter(p>alpha)
+
+  
+```
+### Compute multiple pairwise comparisons: Games Howell
+
+```{r}
+dataset %>% 
+  gather(key = "variable", value = "value",-gender) %>%
+  group_by(variable) %>%
+  games_howell_test(value ~ gender) %>%
+  select(-estimate, -conf.low, -conf.high) %>%
+  filter(p.adj>0.05)
+# Remove details
+```
+### Compute multiple pairwise comparisons: pairwise_t_test
+
+```{r}
+
+dataset %>% 
+  gather(key = "variable", value = "value",-gender) %>%
+  group_by(variable) %>%
+  pairwise_t_test(value ~ gender, pool.sd = FALSE , var.equal = FALSE) %>%
+  
+  filter(p.adj>0.05)
+
+
+```
+
+### Check the homogneity of variance assumption: Without Outlier
+
+```{r}
+dataset.outlierf %>% 
+  gather(key = "variable", value = "value", -gender) %>%
+  group_by(variable) %>%
+  levene_test(value ~ gender) %>%
+  filter(p<0.05)
+```
+### Check the homogeneity of covariances assumption: Without Outlier
+
+```{r}
+
+box_m(dataset.outlierf[-length(dataset.outlierf)],dataset.outlierf$gender)
+```
+
+
+### Perform MANOVA: Without Outlier
+
+
+```{r}
+dvar = data.matrix(dataset.outlierf[-length(dataset.outlierf)])
+model1 = lm(dvar ~ gender, dataset.outlierf)
+Manova(model, test.statistic = "Pillai")
+
+```
+
+```{r}
+manova_model= manova(model1)
+
+eta_squared(manova_model)
+```
+
+
+### POST HOC: Without Outlier
+
+### Compute univariate one-way ANOVA: welch ANOVA
+
+```{r}
+alpha = 0.05/(length(dataset.outlierf)-1)
+dataset.outlierf %>% 
+  gather(key = "variable", value = "value", -gender) %>%
+  group_by(variable) %>%
+  welch_anova_test(value ~ gender) %>%
+  filter(p>alpha)
+```
+
+### Compute univariate one-way ANOVA: ANOVA
+
+```{r}
+alpha = 0.05/(length(dataset.outlierf)-1)
+dataset.outlierf %>% 
+  gather(key = "variable", value = "value", -gender) %>%
+  group_by(variable) %>%
+  anova_test(value ~ gender) %>%
+  as.data.frame() %>%
+  filter(p>alpha)
+
+  
+```
+### Compute multiple pairwise comparisons: Games Howell
+
+```{r}
+dataset.outlierf %>% 
+  gather(key = "variable", value = "value",-gender) %>%
+  group_by(variable) %>%
+  games_howell_test(value ~ gender) %>%
+  select(-estimate, -conf.low, -conf.high) %>%
+  filter(p.adj>0.05)
+# Remove details
+```
+### Compute multiple pairwise comparisons: pairwise_t_test
+
+```{r}
+
+dataset.outlierf %>% 
+  gather(key = "variable", value = "value",-gender) %>%
+  group_by(variable) %>%
+  pairwise_t_test(value ~ gender, pool.sd = FALSE , var.equal = FALSE) %>%
+  filter(p.adj>0.05)
+# Remove details
+
+```
